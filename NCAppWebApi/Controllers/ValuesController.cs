@@ -122,15 +122,15 @@ namespace NCAppWebApi.Controllers
         }
 
 
-        /*Enables the customer to view all the of orders scheduled by them till date.
-         * Last Modified: 22-06-2021
+        /*Enables the customer to view all the of orders scheduled by them till date in descending order with latest scheduled pickup on top.
+         * Last Modified: 24-08-2021
          */
         [Route("api/schedulehistory")]
         [HttpPost]
         public async Task<List<ScheduleHistoryModel>> ScheduleHistory([FromBody] string emailId)
         {
             Container NcScheduleHistoryCon = Ncdatabase.GetContainer("ScheduleHistory");
-            string sqlQueryText = string.Format("SELECT * FROM ScheduleHistory where ScheduleHistory.email = '{0}'", emailId);
+            string sqlQueryText = string.Format("SELECT * FROM ScheduleHistory where ScheduleHistory.email = '{0}' order by ScheduleHistory._ts desc", emailId);
 
             QueryDefinition queryDefinition = new QueryDefinition(sqlQueryText);
             FeedIterator<ScheduleHistoryModel> queryResultSetIterator = NcScheduleHistoryCon.GetItemQueryIterator<ScheduleHistoryModel>(queryDefinition);
