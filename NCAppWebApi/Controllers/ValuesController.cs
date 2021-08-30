@@ -10,6 +10,8 @@ using System.Net.Http;
 using System.Web.Http;
 using NCAppWebApi.Models;
 using System.Threading.Tasks;
+using System.Text;
+using System.Security.Cryptography;
 
 namespace NCAppWebApi.Controllers
 {
@@ -20,6 +22,7 @@ namespace NCAppWebApi.Controllers
         private static SecretClient client;
         private static KeyVaultSecret secret;
         private static string secretValue;
+        private static string encryptKey;
         private static string endpointuri;
         private static CosmosClient cosmosClient;
         private static Database Ncdatabase;
@@ -40,6 +43,8 @@ namespace NCAppWebApi.Controllers
             client = new SecretClient(new Uri("https://nc-poc-keyvault.vault.azure.net/"), new DefaultAzureCredential(), options);
             secret = client.GetSecret("nc-cosmos-access-key");
             secretValue = secret.Value;
+            secret = client.GetSecret("nc-cosmos-encrypt-key");
+            encryptKey = secret.Value;
             endpointuri = "https://nc-poc-cosmosdb.documents.azure.com:443/";
             cosmosClient = new CosmosClient(endpointuri, secretValue);
             Ncdatabase = cosmosClient.GetDatabase("NCMasterDB");
@@ -201,7 +206,7 @@ namespace NCAppWebApi.Controllers
         }
 
         /*Enables the customer to LogIn to the application
-         *Last Modified: 22-06-2021 
+         *Last Modified: 30-08-2021 
          */
         [Route("api/login")]
         [HttpPost]
@@ -209,7 +214,19 @@ namespace NCAppWebApi.Controllers
         {
            
             Container NcUsersCon = Ncdatabase.GetContainer("Users");
-            string sqlQueryText = string.Format("SELECT * FROM Users where Users.id='{0}' AND Users.password='{1}'", lObject.Username, lObject.Password);
+
+            byte[] inputArray = UTF8Encoding.UTF8.GetBytes(lObject.Password);
+            //AesCryptoServiceProvider to make sure we store the data in encrypted form in addition to encryption at rest provided by Microsoft
+            AesCryptoServiceProvider aesProvider = new AesCryptoServiceProvider();
+            aesProvider.Key = UTF8Encoding.UTF8.GetBytes(encryptKey);
+            aesProvider.Mode = CipherMode.ECB;
+            aesProvider.Padding = PaddingMode.PKCS7;
+            ICryptoTransform cTransform = aesProvider.CreateEncryptor();
+            byte[] resultArray = cTransform.TransformFinalBlock(inputArray, 0, inputArray.Length);
+            aesProvider.Clear();
+            string secPass = Convert.ToBase64String(resultArray, 0, resultArray.Length);
+
+            string sqlQueryText = string.Format("SELECT * FROM Users where Users.id='{0}' AND Users.password='{1}'", lObject.Username, secPass);
 
             QueryDefinition queryDefinition = new QueryDefinition(sqlQueryText);
             FeedIterator<UserModel> queryResultSetIterator = NcUsersCon.GetItemQueryIterator<UserModel>(queryDefinition);
@@ -242,14 +259,24 @@ namespace NCAppWebApi.Controllers
         }
 
         /*Enables the customer to register
-         *Last Modified: 22-06-2021 
+         *Last Modified: 30-08-2021 
          */
         [Route("api/register")]
         [HttpPost]
         public async Task<string> Register([FromBody] UserModel uObject)
         {
             Container NcUsersCon = Ncdatabase.GetContainer("Users");
-
+            byte[] inputArray = UTF8Encoding.UTF8.GetBytes(uObject.Password);
+            //AesCryptoServiceProvider to make sure we store the data in encrypted form in addition to encryption at rest provided by Microsoft
+            AesCryptoServiceProvider aesProvider = new AesCryptoServiceProvider();
+            aesProvider.Key = UTF8Encoding.UTF8.GetBytes(encryptKey);
+            aesProvider.Mode = CipherMode.ECB;
+            aesProvider.Padding = PaddingMode.PKCS7;
+            ICryptoTransform cTransform = aesProvider.CreateEncryptor();
+            byte[] resultArray = cTransform.TransformFinalBlock(inputArray, 0, inputArray.Length);
+            aesProvider.Clear();
+            string secPass = Convert.ToBase64String(resultArray, 0, resultArray.Length);
+            uObject.Password = secPass;
             try
             {
                 // Read the customer already registered
